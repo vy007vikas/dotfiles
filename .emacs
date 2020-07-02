@@ -35,10 +35,9 @@
 ;; ----------------------- Theme
 (add-hook 'after-init-hook 
          (lambda () (load-theme 'cyberpunk t)))
-;(load-theme 'ample t t)
-;(enable-theme 'ample)
 (setq-default cursor-type 'hollow)
 (setq-default indent-tabs-mode nil)
+(beacon-mode 1)
 
 
 ;; ----------------------- GOOGLE Settings
@@ -80,8 +79,8 @@
 
 
 ;; ----------------------- Personal customizations
-;; Quickly comment line or region with C-/
-(defun comment-or-uncomment-region-or-line ()
+;; Quickly comment line or region with C-c C-c
+(defun vy/comment-or-uncomment-region-or-line ()
     "Comments or uncomments the region or the current line if there's no active region."
     (interactive)
     (let (beg end)
@@ -90,10 +89,52 @@
             (setq beg (line-beginning-position) end (line-end-position)))
         (comment-or-uncomment-region beg end)
         (next-line)))
+(bind-key* "C-c C-c" #'vy/comment-or-uncomment-region-or-line)
 
-(bind-key* "C-c C-c" #'comment-or-uncomment-region-or-line)
+;; Quickly close all buffers with C-x K
+(defun vy/nuke-all-buffers ()
+  (interactive)
+  (mapcar 'kill-buffer (buffer-list))
+  (delete-other-windows))
+(global-set-key (kbd "C-x K") #'vy/nuke-all-buffers)
 
-(desktop-save-mode 1)
+;; Regex file search in directories
+;; (defun vy/helm-grep-ag ()
+;;   (interactive)
+;;   (helm-grep-ag (read-directory-name "Search in: " default-directory nil t) nil))
+;; (global-set-key (kbd "C-x C-r") #'vy/helm-grep-ap)
+
+
+;; ----------------------- Optimized Desktop save mode
+(defvar vy/desktop-session-dir
+  (concat (getenv "HOME") "/.emacs.d/desktop-sessions/")
+  "*Directory to save desktop sessions in")
+
+(defvar vy/desktop-session-name-hist nil
+  "Desktop session name history")
+
+(defun vy/desktop-save (&optional name)
+  "Save desktop with a name."
+  (interactive)
+  (unless name
+    (setq name (vy/desktop-get-session-name "Save session as: ")))
+  (make-directory (concat vy/desktop-session-dir name) t)
+  (desktop-save (concat vy/desktop-session-dir name) t))
+
+(defun vy/desktop-read (&optional name)
+  "Read desktop with a name."
+  (interactive)
+  (unless name
+    (setq name (vy/desktop-get-session-name "Load session: ")))
+  (desktop-read (concat vy/desktop-session-dir name)))
+
+(defun vy/desktop-get-session-name (prompt)
+  (completing-read prompt (and (file-exists-p vy/desktop-session-dir)
+                               (directory-files vy/desktop-session-dir))
+                   nil nil nil vy/desktop-session-name-hist))
+
+(global-set-key (kbd "C-c w w") #'vy/desktop-save)
+(global-set-key (kbd "C-c w r") #'vy/desktop-read)
 
 
 ;; ----------------------- iBuffer
@@ -115,17 +156,11 @@
   ;; No need to confirm killing buffers.
   :bind ("C-x k" . kill-this-buffer))
 
-;; iMenu
-(global-set-key (kbd "M-i") 'imenu)
-
 
 ;; ----------------------- UI Customizations
 ;; Line highlighting
 (global-hl-line-mode +1)
 (set-face-attribute 'hl-line nil :foreground nil :background "gray10")
-
-;; Change Highlighting
-(global-diff-hl-mode)
 
 ;; Column numbers
 (column-number-mode t)
@@ -139,22 +174,35 @@
 (if (fboundp 'scroll-bar-mode) (scroll-bar-mode -1))
 
 
+;; ----------------------- Git gutter
+(use-package git-gutter
+  :ensure t
+  :hook ((prog-mode . git-gutter-mode)
+         (protobuf-mode . git-gutter-mode))
+  :bind (("C-c <up>" . git-gutter:previous-hunk)
+         ("C-c <down>" . git-gutter:next-hunk))
+  :custom
+  (git-gutter:handled-backends '(hg))
+  :config
+(custom-set-variables
+ '(git-gutter:separator-sign "|"))
+(set-face-foreground 'git-gutter:separator "#2d2d2d"))
+
+
 ;; ----------------------- Expand region
 (require 'expand-region)
 (global-set-key (kbd "C-o") 'er/expand-region)
 
 
+;; ----------------------- Rainbow Delims
+;; (add-hook 'prog-mode-hook #'rainbow-delimiters-mode)
+
+
 ;; ----------------------- Windmove
-(global-set-key (kbd "C-c <left>")  'windmove-left)
-(global-set-key (kbd "C-c <right>") 'windmove-right)
-(global-set-key (kbd "C-c <up>")    'windmove-up)
-(global-set-key (kbd "C-c <down>")  'windmove-down)
-
-
-;; ----------------------- Workgroups
-(require 'workgroups)
-(workgroups-mode 1)
-(setq wg-prefix-key (kbd "C-c w"))
+(global-set-key (kbd "C-c b")  'windmove-left)
+(global-set-key (kbd "C-c f") 'windmove-right)
+(global-set-key (kbd "C-c p")    'windmove-up)
+(global-set-key (kbd "C-c n")  'windmove-down)
 
 
 ;; ----------------------- Yasnippet
@@ -164,11 +212,41 @@
   (yas-global-mode 1))
 
 
+;; ----------------------- Multiple Cursors
+(require 'multiple-cursors)
+;; MC-friendly packages.
+(use-package phi-search :ensure t)
+(use-package phi-rectangle :ensure t)
+(use-package phi-search-mc :ensure t
+  :config
+  (phi-search-mc/setup-keys))
+(global-set-key (kbd "C-c a") 'mc/mark-all-like-this)
+(global-set-key (kbd "C-c u") 'mc-hide-unmatched-lines-mode)
+
+(defun vy/swiper-mc ()
+  (interactive)
+  (unless (require 'multiple-cursors nil t)
+    (error "multiple-cursors isn't installed"))
+  (let ((cands (nreverse ivy--old-cands)))
+    (unless (string= ivy-text "")
+      (ivy-set-action
+       (lambda (_)
+         (let (cand)
+           (while (setq cand (pop cands))
+             (swiper--action cand)
+             (when cands
+               (mc/create-fake-cursor-at-point))))
+         (mc/maybe-multiple-cursors-mode)))
+      (setq ivy-exit 'done)
+      (exit-minibuffer))))
+(global-set-key (kbd "C-c m") #'vy/swiper-mc)
+
+
 ;; ----------------------- Dimmer mode
 (require 'dimmer)
 (dimmer-configure-which-key)
 (dimmer-configure-helm)
-(setq dimmer-fraction 0.3)
+(setq dimmer-fraction 0.2)
 (dimmer-mode t)
 
 
@@ -176,7 +254,7 @@
 (require 'org)
 (setq org-agenda-files (list "~/org/work.org"))
 (define-key global-map "\C-cl" 'org-store-link)
-(define-key global-map "\C-ca" 'org-agenda)
+;; (define-key global-map "\C-ca" 'org-agenda)
 (setq org-log-done t)
 
 
@@ -184,9 +262,13 @@
 (ivy-mode 1)
 (setq ivy-use-virtual-buffers t)
 (setq enable-recursive-minibuffers t)
+(setq ivy-on-del-error-function #'ignore)
 ;; enable this if you want `swiper' to use it
 ;; (setq search-default-mode #'char-fold-to-regexp)
 (global-set-key "\C-s" 'swiper)
+
+;; iMenu
+(global-set-key (kbd "M-i") 'counsel-semantic-or-imenu)
 
 
 ;; ----------------------- Which-key mode
@@ -198,8 +280,8 @@
 ;; (define-key global-map (kbd "C-c SPC") 'ace-jump-mode)
 ;; ;(setq ace-jump-mode-gray-background nil)
 ;; (setq ace-jump-mode-scope 'window)
-;; (global-set-key (kbd "M-o") 'ace-window)
-;; (setq aw-keys '(?a ?s ?d ?f ?g ?h ?j ?k ?l))
+(global-set-key (kbd "C-x o") 'ace-window)
+(setq aw-keys '(?a ?s ?d ?f ?g ?h ?j ?k ?l))
 ;; ;(setq aw-background nil)
 
 ;; ----------------------- Avy Jump Mode
@@ -227,11 +309,11 @@
 ;; The default "C-x c" is quite close to "C-x C-c", which quits Emacs.
 ;; Changed to "C-c h". Note: We must set "C-c h" globally, because we
 ;; cannot change `helm-command-prefix-key' once `helm-config' is loaded.
-(global-set-key (kbd "C-c h") 'helm-command-prefix)
 (global-unset-key (kbd "C-x c"))
 (global-set-key (kbd "M-x") 'helm-M-x)
 (global-set-key (kbd "M-y") 'helm-show-kill-ring)
 (global-set-key (kbd "C-x C-f") 'helm-find-files)
+(global-set-key (kbd "C-x C-r") 'helm-find)
 
 (define-key helm-map (kbd "<tab>") 'helm-execute-persistent-action) ; rebind tab to run persistent action
 (define-key helm-map (kbd "C-i") 'helm-execute-persistent-action) ; make TAB work in terminal
@@ -275,15 +357,20 @@
  ;; If you edit it by hand, you could mess it up, so be careful.
  ;; Your init file should contain only one such instance.
  ;; If there is more than one, they won't work right.
+ '(avy-all-windows (quote all-frames) t)
+ '(avy-background t t)
+ '(avy-timeout-seconds 0.3 t)
  '(compilation-error-regexp-alist
    (quote
     (google3-build-log-parser-info google3-build-log-parser-warning google3-build-log-parser-error google3-build-log-parser-python-traceback google-blaze-error google-blaze-warning google-log-error google-log-warning google-log-info google-log-fatal-message google-forge-python gunit-stack-trace absoft ada aix ant bash borland python-tracebacks-and-caml cmake cmake-info comma cucumber msft edg-1 edg-2 epc ftnchek iar ibm irix java jikes-file maven jikes-line clang-include clang-include gcc-include ruby-Test::Unit gnu lcc makepp mips-1 mips-2 msft omake oracle perl php rxp sparc-pascal-file sparc-pascal-line sparc-pascal-example sun sun-ada watcom 4bsd gcov-file gcov-header gcov-nomark gcov-called-line gcov-never-called perl--Pod::Checker perl--Test perl--Test2 perl--Test::Harness weblint guile-file guile-line)))
  '(custom-safe-themes
    (quote
     ("06f0b439b62164c6f8f84fdda32b62fb50b6d00e8b01c2208e55543a6337433a" "bffa9739ce0752a37d9b1eee78fc00ba159748f50dc328af4be661484848e476" default)))
+ '(git-gutter:handled-backends (quote (hg)))
+ '(git-gutter:separator-sign "|")
  '(package-selected-packages
    (quote
-    (workgroups dimmer auto-highlight-symbol highlight-symbol buffer-move neotree zoom sublimity expand-region ivy swiper color-theme-sanityinc-tomorrow ample-theme diff-hl cyberpunk-theme ace-jump-mode meghanada lsp-java projectile spacemacs-theme afternoon-theme zenburn-theme yasnippet-snippets yaml-mode which-key undo-tree tabbar session rust-mode puppet-mode pod-mode muttrc-mode mutt-alias lsp-ui initsplit ido-completing-read+ htmlize graphviz-dot-mode goto-chg gitignore-mode gitconfig-mode gitattributes-mode git-modes folding ess eproject diminish csv-mode company-lsp browse-kill-ring boxquote bm bar-cursor apache-mode)))
+    (phi-search-mc phi-rectangle phi-search validate git-gutter beacon rainbow-delimiters multiple-cursors workgroups dimmer auto-highlight-symbol highlight-symbol buffer-move neotree zoom sublimity expand-region ivy swiper color-theme-sanityinc-tomorrow ample-theme diff-hl cyberpunk-theme ace-jump-mode meghanada lsp-java projectile spacemacs-theme afternoon-theme zenburn-theme yasnippet-snippets yaml-mode which-key undo-tree tabbar session rust-mode puppet-mode pod-mode muttrc-mode mutt-alias lsp-ui initsplit ido-completing-read+ htmlize graphviz-dot-mode goto-chg gitignore-mode gitconfig-mode gitattributes-mode git-modes folding ess eproject diminish csv-mode company-lsp browse-kill-ring boxquote bm bar-cursor apache-mode)))
  '(zoom-mode t nil (zoom)))
 
 
