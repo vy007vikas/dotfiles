@@ -34,19 +34,35 @@
 
 ;; ----------------------- Theme
 (add-hook 'after-init-hook 
-         (lambda () (load-theme 'cyberpunk t)))
+         (lambda () (load-theme 'sanityinc-tomorrow-eighties t)))
 (setq-default cursor-type 'hollow)
 (setq-default indent-tabs-mode nil)
-(beacon-mode 1)
+(use-package beacon
+    :config
+    (setq beacon-mode 1)
+    (setq beacon-blink-delay 0.1)
+    (setq beacon-blink-duration 0.3)
+    (setq beacon-blink-when-point-moves 7)
+    (setq beacon-color "blue"))
+
+;; (rich-minority-mode 1)
+;; (setq rm-blacklist
+      ;; (format "^ \\(%s\\)$"
+              ;; (mapconcat #'identity
+                         ;; '("Fly.*" "Projectile.*" "Helm" "WK" "yas"
+                           ;; "ivy" "company" "GitGutter" "Abbrev" "ElDoc")
+                         ;; "\\|")))
 
 
 ;; ----------------------- GOOGLE Settings
-;; csearch
+(defvar vy/google3-home "/google/src/cloud/yadavvi/")
 (require 'csearch)
+(which-function-mode 1)
 (global-set-key (kbd "C-c q") #'csearch)
+(global-set-key (kbd "C-c g f") #'google3-format-region-or-buffer)
+(global-set-key (kbd "C-c g t") #'google3-test)
+(global-set-key (kbd "C-c g b") #'google3-build-cleaner)
 
-;; lint
-(global-set-key (kbd "C-c l") #'google-lint)
 (require 'google3-build-cleaner)
 
 ;; Remove legacy p4 stuff for fig clients
@@ -67,18 +83,47 @@
 	   (file-path (bookmark-get-filename bmk-record))
 	   (path-index (string-match-p "/google3/" file-path))
 	   (suffix-path (substring file-path path-index (length file-path))))
-      (bookmark-set-filename bmk-record (concatenate 'string "/google/src/cloud/yadavvi/" (read-string "Enter client-name:") suffix-path))
+      (setq name (vy/fig-client-prompt "Enter client name: "))
+      (bookmark-set-filename bmk-record
+                             (concatenate 'string vy/google3-home name suffix-path))
       (ad-set-arg 0 bmk-record))))
 
-;; Quickly reloading files
-(defun revert-buffer-no-confirm ()
-    "Revert buffer without confirmation."
-    (interactive)
-    (revert-buffer :ignore-auto :noconfirm))
-(global-set-key (kbd "C-c C-r") #'revert-buffer-no-confirm)
+(defun vy/fig-client-prompt (prompt)
+  "Prompts for all available citc clients."
+  (completing-read prompt
+                   (remove-if
+                    (lambda (x) (string-match "^fig-export" x))
+                    (directory-files vy/google3-home))
+                   nil nil nil nil))
+
+;; Toggle between java code and javatest file.
+(defun vy/toggle-file-javatests ()
+  (interactive)
+  "Toggles between javatest and the java code for the file open right now."
+  (if (string-match-p "/google3/javatests/" buffer-file-name)
+      (let*
+          ((file-path (replace-regexp-in-string "/google3/javatests/"
+                                                "/google3/java/"
+                                                buffer-file-name))
+           (file-path (replace-regexp-in-string (regexp-quote "Test.java")
+                                                ".java"
+                                                file-path)))
+        (find-file file-path))
+    (let*
+        ((file-path (replace-regexp-in-string "/google3/java/"
+                                              "/google3/javatests/"
+                                              buffer-file-name))
+         (file-path (replace-regexp-in-string (regexp-quote ".java")
+                                              "Test.java"
+                                              file-path)))
+      (find-file file-path))))
+(global-set-key (kbd "C-c C-t") #'vy/toggle-file-javatests)
 
 
 ;; ----------------------- Personal customizations
+;; Make emacs autocompletiopn case-sensitive
+(setq dabbrev-case-fold-search nil)
+
 ;; Quickly comment line or region with C-c C-c
 (defun vy/comment-or-uncomment-region-or-line ()
     "Comments or uncomments the region or the current line if there's no active region."
@@ -97,6 +142,18 @@
   (mapcar 'kill-buffer (buffer-list))
   (delete-other-windows))
 (global-set-key (kbd "C-x K") #'vy/nuke-all-buffers)
+
+(defun vy/things ()
+  (interactive)
+  (find-file "~/org/todo.org"))
+(global-set-key (kbd "C-c t") #'vy/things)
+
+;; Quickly reloading files
+(defun revert-buffer-no-confirm ()
+    "Revert buffer without confirmation."
+    (interactive)
+    (revert-buffer :ignore-auto :noconfirm))
+(global-set-key (kbd "C-c C-r") #'revert-buffer-no-confirm)
 
 ;; Regex file search in directories
 ;; (defun vy/helm-grep-ag ()
@@ -128,6 +185,14 @@
     (setq name (vy/desktop-get-session-name "Load session: ")))
   (desktop-read (concat vy/desktop-session-dir name)))
 
+(defun vy/desktop-delete (&optional name)
+  "Delete desktop with a name."
+  (interactive)
+  (unless name
+    (setq name (vy/desktop-get-session-name "Delete session: ")))
+  (delete-directory (concat vy/desktop-session-dir name) t))
+
+
 (defun vy/desktop-get-session-name (prompt)
   (completing-read prompt (and (file-exists-p vy/desktop-session-dir)
                                (directory-files vy/desktop-session-dir))
@@ -135,6 +200,7 @@
 
 (global-set-key (kbd "C-c w w") #'vy/desktop-save)
 (global-set-key (kbd "C-c w r") #'vy/desktop-read)
+(global-set-key (kbd "C-c w d") #'vy/desktop-delete)
 
 
 ;; ----------------------- iBuffer
@@ -160,7 +226,7 @@
 ;; ----------------------- UI Customizations
 ;; Line highlighting
 (global-hl-line-mode +1)
-(set-face-attribute 'hl-line nil :foreground nil :background "gray10")
+;; (set-face-attribute 'hl-line nil :foreground nil :background "gray10")
 
 ;; Column numbers
 (column-number-mode t)
@@ -185,17 +251,13 @@
   (git-gutter:handled-backends '(hg))
   :config
 (custom-set-variables
- '(git-gutter:separator-sign "|"))
-(set-face-foreground 'git-gutter:separator "#2d2d2d"))
+ '(git-gutter:separator-sign "|")))
+;; (set-face-foreground 'git-gutter:separator "#2d2d2d"))
 
 
 ;; ----------------------- Expand region
 (require 'expand-region)
 (global-set-key (kbd "C-o") 'er/expand-region)
-
-
-;; ----------------------- Rainbow Delims
-;; (add-hook 'prog-mode-hook #'rainbow-delimiters-mode)
 
 
 ;; ----------------------- Windmove
@@ -263,9 +325,18 @@
 (setq ivy-use-virtual-buffers t)
 (setq enable-recursive-minibuffers t)
 (setq ivy-on-del-error-function #'ignore)
-;; enable this if you want `swiper' to use it
-;; (setq search-default-mode #'char-fold-to-regexp)
-(global-set-key "\C-s" 'swiper)
+;; Always recentre when leaving Swiper
+;; (setq swiper-action-recenter t)
+
+(defun vy/swiper-with-region()
+  (interactive)
+  (if (region-active-p)
+      (progn
+        (setq querytext (buffer-substring (region-beginning) (region-end)))
+        (deactivate-mark)
+        (swiper querytext))
+    (swiper)))
+(global-set-key "\C-s" #'vy/swiper-with-region)
 
 ;; iMenu
 (global-set-key (kbd "M-i") 'counsel-semantic-or-imenu)
@@ -357,20 +428,21 @@
  ;; If you edit it by hand, you could mess it up, so be careful.
  ;; Your init file should contain only one such instance.
  ;; If there is more than one, they won't work right.
- '(avy-all-windows (quote all-frames) t)
- '(avy-background t t)
- '(avy-timeout-seconds 0.3 t)
+ '(avy-all-windows (quote all-frames))
+ '(avy-background t)
+ '(avy-timeout-seconds 0.3)
  '(compilation-error-regexp-alist
    (quote
     (google3-build-log-parser-info google3-build-log-parser-warning google3-build-log-parser-error google3-build-log-parser-python-traceback google-blaze-error google-blaze-warning google-log-error google-log-warning google-log-info google-log-fatal-message google-forge-python gunit-stack-trace absoft ada aix ant bash borland python-tracebacks-and-caml cmake cmake-info comma cucumber msft edg-1 edg-2 epc ftnchek iar ibm irix java jikes-file maven jikes-line clang-include clang-include gcc-include ruby-Test::Unit gnu lcc makepp mips-1 mips-2 msft omake oracle perl php rxp sparc-pascal-file sparc-pascal-line sparc-pascal-example sun sun-ada watcom 4bsd gcov-file gcov-header gcov-nomark gcov-called-line gcov-never-called perl--Pod::Checker perl--Test perl--Test2 perl--Test::Harness weblint guile-file guile-line)))
  '(custom-safe-themes
    (quote
-    ("06f0b439b62164c6f8f84fdda32b62fb50b6d00e8b01c2208e55543a6337433a" "bffa9739ce0752a37d9b1eee78fc00ba159748f50dc328af4be661484848e476" default)))
+    ("628278136f88aa1a151bb2d6c8a86bf2b7631fbea5f0f76cba2a0079cd910f7d" "99bc178c2856c32505c514ac04bf25022eaa02e2fddc5e7cdb40271bc708de39" "36ca8f60565af20ef4f30783aa16a26d96c02df7b4e54e9900a5138fb33808da" "c9ddf33b383e74dac7690255dd2c3dfa1961a8e8a1d20e401c6572febef61045" "fa2b58bb98b62c3b8cf3b6f02f058ef7827a8e497125de0254f56e373abee088" "06f0b439b62164c6f8f84fdda32b62fb50b6d00e8b01c2208e55543a6337433a" "bffa9739ce0752a37d9b1eee78fc00ba159748f50dc328af4be661484848e476" default)))
  '(git-gutter:handled-backends (quote (hg)))
  '(git-gutter:separator-sign "|")
+ '(org-startup-truncated nil)
  '(package-selected-packages
    (quote
-    (phi-search-mc phi-rectangle phi-search validate git-gutter beacon rainbow-delimiters multiple-cursors workgroups dimmer auto-highlight-symbol highlight-symbol buffer-move neotree zoom sublimity expand-region ivy swiper color-theme-sanityinc-tomorrow ample-theme diff-hl cyberpunk-theme ace-jump-mode meghanada lsp-java projectile spacemacs-theme afternoon-theme zenburn-theme yasnippet-snippets yaml-mode which-key undo-tree tabbar session rust-mode puppet-mode pod-mode muttrc-mode mutt-alias lsp-ui initsplit ido-completing-read+ htmlize graphviz-dot-mode goto-chg gitignore-mode gitconfig-mode gitattributes-mode git-modes folding ess eproject diminish csv-mode company-lsp browse-kill-ring boxquote bm bar-cursor apache-mode)))
+    (rich-minority phi-search-mc phi-rectangle phi-search validate git-gutter beacon rainbow-delimiters multiple-cursors workgroups dimmer auto-highlight-symbol highlight-symbol buffer-move neotree zoom sublimity expand-region ivy swiper color-theme-sanityinc-tomorrow ample-theme diff-hl cyberpunk-theme ace-jump-mode meghanada lsp-java projectile spacemacs-theme afternoon-theme zenburn-theme yasnippet-snippets yaml-mode which-key undo-tree tabbar session rust-mode puppet-mode pod-mode muttrc-mode mutt-alias lsp-ui initsplit ido-completing-read+ htmlize graphviz-dot-mode goto-chg gitignore-mode gitconfig-mode gitattributes-mode git-modes folding ess eproject diminish csv-mode company-lsp browse-kill-ring boxquote bm bar-cursor apache-mode)))
  '(zoom-mode t nil (zoom)))
 
 
